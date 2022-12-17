@@ -1,10 +1,12 @@
-import logging
-import setting, testnet
 import ccxt
+import logging
+import os
 import my_lib as myfc
-from fastapi import FastAPI, Response, status
-from pydantic import BaseModel
+import setting, testnet
+from ast import literal_eval
+from fastapi import FastAPI, Response, Request, status
 from mangum import Mangum
+from pydantic import BaseModel
 
 logging.basicConfig(format='%(asctime)s - %(message)s', datefmt='%c')
 class post_format(BaseModel):
@@ -18,54 +20,72 @@ class post_format(BaseModel):
     LEVERAGE : int
     COMMENT : str
 
-test = 0 # True or False
+allowip = literal_eval(os.environ.get('IP_TV'))
+test = literal_eval(os.environ.get('TESTMODE'))
 if test == True:
-    pwd = testnet.WEBHOOK_TOKEN
+    tkn = testnet.WEBHOOK_TOKEN
     exid = testnet.EXCHANGE
     key = testnet.API_KEY
     secret = testnet.API_SECRET
+    pwd = testnet.PASSWORD
 else:
-    pwd = setting.WEBHOOK_TOKEN
+    tkn = setting.WEBHOOK_TOKEN
     exid = setting.EXCHANGE
     key = setting.API_KEY
     secret = setting.API_SECRET
+    pwd = setting.PASSWORD
 
 exchange_class = getattr(ccxt, exid)
 exchange = exchange_class({
     'apiKey': key,
     'secret': secret,
+    'password': pwd,
     'options': {
         'fetchCurrencies': False,
         'defaultType': 'future'
     }
 })
 exchange.set_sandbox_mode(test)
-
 fast_app = FastAPI()
 
+@fast_app.middleware("http")
+async def test(request: Request, call_next):
+    response = Response("Internal server error", status_code=500)
+    hostip = request.client.host
+    if hostip in allowip:
+        response = await call_next(request)
+        return response
+    else:
+        logging.critical('IP error: %s', hostip)
+        return response
+
 @fast_app.post("/webhook")
-def read_webhook(signal: post_format, response: Response):
+def read_webhook(
+    signal: post_format,
+    response: Response,
+):
     if signal:
-        if signal.TOKEN != pwd:
-            logging.critical("TOKEN error")
-            response.status_code = status.HTTP_401_UNAUTHORIZED
-            return response, {"msg": "check your webhook setting"}
+        if signal.TOKEN != tkn:
+            logging.critical('TOKEN error: %s', signal.TOKEN)
+            response.status_code = 401
+            return {"msg": "check your webhook setting"}
 
         trade_symbol = myfc.symbolcheck(signal.SYMBOL)
         trade_price = signal.PRICE
         trade_quantity = signal.QUANTITY
         
+        if signal.LEVERAGE > 0:
+            try:
+                exchange.set_leverage(signal.LEVERAGE, trade_symbol)
+            except Exception as e:
+                logging.error('LEVERAGE:%d  SYMBOL:%s - %s', signal.LEVERAGE, trade_symbol, str(e))
+                response.status_code = 422
+                return {"msg": "check your webhook SYMBOL and LEVERAGE"}
+
         params = {
             # 'postOnly' : True,
             'reduceOnly': signal.REDUCEONLY,
-        }        
-        try:
-            exchange.set_leverage(signal.LEVERAGE, trade_symbol)
-        except Exception as e:
-            logging.error('LEVERAGE:%d  SYMBOL:%s - %s', signal.LEVERAGE, trade_symbol, str(e))
-            response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
-            return response,{"msg": "check your webhook SYMBOL and LEVERAGE"}
-
+        }
         try:
             star_order = exchange.create_order(
                 trade_symbol,
@@ -74,19 +94,16 @@ def read_webhook(signal: post_format, response: Response):
                 trade_quantity,
                 trade_price,
                 params)
+            response.status_code = 201
+            return {"msg": "order success"}
         except Exception as e:
-            logging.error('SYMBOL:%s  TYPE:%s  SIDE/AMOUNT:%s/%d  PRICE:%d - %s', 
+            logging.error('SYMBOL:%s  TYPE:%s  SIDE/AMOUNT:%s/%d  PRICE:%.3f - %s', 
                 trade_symbol, signal.ORDER_TYPE, signal.SIDE, trade_quantity, trade_price, str(e))
-            response.status_code = status.HTTP_400_BAD_REQUEST
-            return response,{"msg": "order fail"}
-
-        # logging.info('SYMBOL:%s  TYPE:%s  ID:%s  SIDE/AMOUNT:%s/%d  PRICE:%d', 
-        #     trade_symbol, signal.ORDER_TYPE, str(star_order['id']), str(star_order['side']), star_order['amount'], star_order['average'])
-        response.status_code = status.HTTP_201_CREATED
-        return response,{"msg": "order success"}
+            response.status_code = 400
+            return {"msg": "order fail"}
     else:
         logging.critical("POST error")
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return response,{"msg": "check your webhook JSON"}
+        response.status_code = 400
+        return {"msg": "check your webhook JSON"}
 
 handler = Mangum(fast_app, lifespan="off")
