@@ -52,7 +52,7 @@ fast_app = FastAPI()
 async def test(request: Request, call_next):
     response = Response("Internal server error", status_code=500)
     hostip = request.client.host
-    if hostip in allowip:
+    if (hostip in allowip) or (allowip == ["*"]):
         response = await call_next(request)
         return response
     else:
