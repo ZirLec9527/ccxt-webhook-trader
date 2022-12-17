@@ -1,4 +1,3 @@
 ccxt
 mangum
-uvicorn
 fastapi
