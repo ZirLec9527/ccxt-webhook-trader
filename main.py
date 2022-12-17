@@ -20,7 +20,7 @@ class post_format(BaseModel):
     LEVERAGE : int
     COMMENT : str
 
-allowip = literal_eval(os.environ.get('IP_TV'))
+allowip = literal_eval(os.environ.get('IP_ALLOW')) # set environ in os
 test = literal_eval(os.environ.get('TESTMODE'))
 if test == True:
     tkn = testnet.WEBHOOK_TOKEN
@@ -48,7 +48,7 @@ exchange = exchange_class({
 exchange.set_sandbox_mode(test)
 fast_app = FastAPI()
 
-@fast_app.middleware("http")
+@fast_app.middleware("http") # before request
 async def test(request: Request, call_next):
     response = Response("Internal server error", status_code=500)
     hostip = request.client.host
