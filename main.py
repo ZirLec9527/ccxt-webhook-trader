@@ -21,8 +21,7 @@ class post_format(BaseModel):
     LEVERAGE : int
     COMMENT : str
 
-# allowip = literal_eval(os.environ.get('IP_ALLOW')) # set environ in os
-test = 1 #literal_eval(os.environ.get('TESTMODE'))
+test = literal_eval(os.environ.get('TESTMODE'))
 
 def loadingAPI(source):
     global tkn, exid, key, secret, pwd
@@ -83,8 +82,7 @@ async def read_webhook(signal: post_format):
         logger.critical(f'mismatch {signal.TOKEN=}')
         raise HTTPException(status_code=401, detail='check your webhook setting')
     
-    logger.info(f'webhook signal: {signal}')
-
+    # logger.info(f'webhook signal: {signal}')
     trade_symbol = symbolfilter(signal.SYMBOL)
     trade_price = signal.PRICE
     trade_quantity = signal.QUANTITY
