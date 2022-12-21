@@ -1,14 +1,15 @@
-import ccxt
+import ccxt.async_support as ccxt
 import logging
 import os
-import my_lib as myfc
 import setting, testnet
 from ast import literal_eval
-from fastapi import FastAPI, Response, Request, status
+from fastapi import FastAPI, Response, Request, HTTPException
 from mangum import Mangum
 from pydantic import BaseModel
 
-logging.basicConfig(format='%(asctime)s - %(message)s', datefmt='%c')
+logging.basicConfig(level=logging.INFO,  format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%c')
+logger = logging.getLogger('trader')
+
 class post_format(BaseModel):
     TOKEN : str
     SYMBOL : str
@@ -20,20 +21,23 @@ class post_format(BaseModel):
     LEVERAGE : int
     COMMENT : str
 
-allowip = literal_eval(os.environ.get('IP_ALLOW')) # set environ in os
-test = literal_eval(os.environ.get('TESTMODE'))
+# allowip = literal_eval(os.environ.get('IP_ALLOW')) # set environ in os
+test = 1 #literal_eval(os.environ.get('TESTMODE'))
+
+def loadingAPI(source):
+    global tkn, exid, key, secret, pwd
+    tkn = source.WEBHOOK_TOKEN
+    exid = source.EXCHANGE
+    key = source.API_KEY
+    secret = source.API_SECRET
+    pwd = source.PASSWORD
+
 if test == True:
-    tkn = testnet.WEBHOOK_TOKEN
-    exid = testnet.EXCHANGE
-    key = testnet.API_KEY
-    secret = testnet.API_SECRET
-    pwd = testnet.PASSWORD
+    loadingAPI(testnet)
+    allowip=["*"]
 else:
-    tkn = setting.WEBHOOK_TOKEN
-    exid = setting.EXCHANGE
-    key = setting.API_KEY
-    secret = setting.API_SECRET
-    pwd = setting.PASSWORD
+    loadingAPI(setting)
+    allowip = literal_eval(os.environ.get('IP_ALLOW'))
 
 exchange_class = getattr(ccxt, exid)
 exchange = exchange_class({
@@ -41,6 +45,7 @@ exchange = exchange_class({
     'secret': secret,
     'password': pwd,
     'options': {
+        'enableRateLimit': True,
         'fetchCurrencies': False,
         'defaultType': 'future'
     }
@@ -48,62 +53,68 @@ exchange = exchange_class({
 exchange.set_sandbox_mode(test)
 fast_app = FastAPI()
 
-@fast_app.middleware("http") # before request
-async def test(request: Request, call_next):
-    response = Response("Internal server error", status_code=500)
+def symbolfilter(symbol):
+    syidx = 0
+    try:
+        syidx = symbol.index('USDT')
+    except:
+        try:
+            logger.warning('USDT not found. Try to use BUSD.')
+            syidx = symbol.index('BUSD')
+        except:
+            logger.error(f'USDT BUSD both not found. {symbol}')
+            raise NameError(symbol)
+    symbol = symbol[:syidx+4]
+    return symbol
+
+@fast_app.middleware('http') # before request
+async def pre_process(request: Request, call_next):    
     hostip = request.client.host
     if (hostip in allowip) or (allowip == ["*"]):
         response = await call_next(request)
-        return response
     else:
-        logging.critical('IP error: %s', hostip)
-        return response
+        logger.critical(f'IP error: {hostip}')
+        response = Response(status_code=403)
+    return response
 
-@fast_app.post("/webhook")
-def read_webhook(
-    signal: post_format,
-    response: Response,
-):
-    if signal:
-        if signal.TOKEN != tkn:
-            logging.critical('TOKEN error: %s', signal.TOKEN)
-            response.status_code = 401
-            return {"msg": "check your webhook setting"}
+@fast_app.post("/webhook", status_code=201)
+async def read_webhook(signal: post_format):
+    if signal.TOKEN != tkn:
+        logger.critical(f'mismatch {signal.TOKEN=}')
+        raise HTTPException(status_code=401, detail='check your webhook setting')
+    
+    logger.info(f'webhook signal: {signal}')
 
-        trade_symbol = myfc.symbolcheck(signal.SYMBOL)
-        trade_price = signal.PRICE
-        trade_quantity = signal.QUANTITY
-        
-        if signal.LEVERAGE > 0:
-            try:
-                exchange.set_leverage(signal.LEVERAGE, trade_symbol)
-            except Exception as e:
-                logging.error('LEVERAGE:%d  SYMBOL:%s - %s', signal.LEVERAGE, trade_symbol, str(e))
-                response.status_code = 422
-                return {"msg": "check your webhook SYMBOL and LEVERAGE"}
-
-        params = {
-            # 'postOnly' : True,
-            'reduceOnly': signal.REDUCEONLY,
-        }
+    trade_symbol = symbolfilter(signal.SYMBOL)
+    trade_price = signal.PRICE
+    trade_quantity = signal.QUANTITY
+    
+    if signal.LEVERAGE > 0:
         try:
-            star_order = exchange.create_order(
-                trade_symbol,
-                signal.ORDER_TYPE,
-                signal.SIDE,
-                trade_quantity,
-                trade_price,
-                params)
-            response.status_code = 201
-            return {"msg": "order success"}
+            setlever = await exchange.set_leverage(signal.LEVERAGE, trade_symbol)
         except Exception as e:
-            logging.error('SYMBOL:%s  TYPE:%s  SIDE/AMOUNT:%s/%d  PRICE:%.3f - %s', 
-                trade_symbol, signal.ORDER_TYPE, signal.SIDE, trade_quantity, trade_price, str(e))
-            response.status_code = 400
-            return {"msg": "order fail"}
+            logger.error(f'LEVERAGE:{signal.LEVERAGE} SYMBOL:{trade_symbol} - {e}')
+            raise HTTPException(status_code=422, detail='leverage error')
+        else:
+            logger.info(setlever)
+
+    order_params = {'reduceOnly': signal.REDUCEONLY}
+    try:
+        star_order = await exchange.create_order(
+            trade_symbol,
+            signal.ORDER_TYPE,
+            signal.SIDE,
+            trade_quantity,
+            trade_price,
+            order_params
+            )
+    except Exception as e:
+        logger.error('SYMBOL:%s  TYPE:%s  SIDE/AMOUNT:%s/%d  PRICE:%.3f - %s', 
+            trade_symbol, signal.ORDER_TYPE, signal.SIDE, trade_quantity, trade_price, str(e))
+        raise HTTPException(status_code=422, detail='order failed')
     else:
-        logging.critical("POST error")
-        response.status_code = 400
-        return {"msg": "check your webhook JSON"}
+        logging.info('SYMBOL:%s  TYPE:%s  ID:%s  SIDE/AMOUNT:%s/%d  PRICE:%.3f', 
+            star_order['symbol'], star_order['type'], star_order['id'], star_order['side'], star_order['amount'], star_order['price'])
+        return {"order success"}
 
 handler = Mangum(fast_app, lifespan="off")
