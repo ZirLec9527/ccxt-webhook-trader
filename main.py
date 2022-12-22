@@ -68,7 +68,11 @@ def symbolfilter(symbol):
 
 @fast_app.middleware('http') # before request
 async def pre_process(request: Request, call_next):    
-    hostip = request.client.host
+    hostip = request.client.host    
+    # ms azure method
+    # realip = request.headers.get('client-ip')
+    # realip = realip[:realip.index(':')]
+    
     if (hostip in allowip) or (allowip == ["*"]):
         response = await call_next(request)
     else:
