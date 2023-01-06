@@ -1,8 +1,6 @@
 import ccxt.async_support as ccxt
 import logging
 import os
-import setting, testnet
-from ast import literal_eval
 from fastapi import FastAPI, Response, Request, HTTPException
 from mangum import Mangum
 from pydantic import BaseModel
@@ -21,32 +19,30 @@ class post_format(BaseModel):
     LEVERAGE : int
     COMMENT : str
 
-test = literal_eval(os.environ.get('TESTMODE'))
-
-def loadingAPI(source):
-    global tkn, exid, key, secret, pwd
-    tkn = source.WEBHOOK_TOKEN
-    exid = source.EXCHANGE
-    key = source.API_KEY
-    secret = source.API_SECRET
-    pwd = source.PASSWORD
-
+test = os.environ.get('TESTMODE', False)
 if test == True:
-    loadingAPI(testnet)
-    allowip=["*"]
+    from setting import testnet as apiconf
+    allowip = ['*']
 else:
-    loadingAPI(setting)
-    allowip = literal_eval(os.environ.get('IP_ALLOW'))
+    from setting import account as apiconf
+    from setting import iplist
+    allowip = os.environ.get('IP_ALLOW', iplist)
 
-exchange_class = getattr(ccxt, exid)
+apitoken = os.environ.get('WEBHOOK_TOKEN', apiconf['WEBHOOK_TOKEN'])
+apiexchange = os.environ.get('EXCHANGE', apiconf['EXCHANGE'])
+apikey = os.environ.get('API_KEY', apiconf['API_KEY'])
+apisecret = os.environ.get('API_SECRET', apiconf['API_SECRET'])
+apipwd = os.environ.get('API_PASSWORD', apiconf['API_PASSWORD'])
+
+exchange_class = getattr(ccxt, apiexchange)
 exchange = exchange_class({
-    'apiKey': key,
-    'secret': secret,
-    'password': pwd,
+    'apiKey': apikey,
+    'secret': apisecret,
+    'password': apipwd,
     'options': {
         'enableRateLimit': True,
         'fetchCurrencies': False,
-        'defaultType': 'future'
+        'defaultType': 'future' # spot, margin, future, or swap
     }
 })
 exchange.set_sandbox_mode(test)
@@ -68,12 +64,13 @@ def symbolfilter(symbol):
 
 @fast_app.middleware('http') # before request
 async def pre_process(request: Request, call_next):    
-    hostip = request.client.host    
-    # ms azure method
-    # realip = request.headers.get('client-ip')
-    # realip = realip[:realip.index(':')]
-    
-    if (hostip in allowip) or (allowip == ["*"]):
+    hostip = request.client.host
+    '''
+    ms azure method
+    hostip = request.headers.get('client-ip')
+    hostip = hostip[:hostip.index(':')]
+    '''
+    if (hostip in allowip) or (allowip == ['*']):
         response = await call_next(request)
     else:
         logger.critical(f'IP error: {hostip}')
@@ -82,7 +79,7 @@ async def pre_process(request: Request, call_next):
 
 @fast_app.post("/webhook", status_code=201)
 async def read_webhook(signal: post_format):
-    if signal.TOKEN != tkn:
+    if signal.TOKEN != apitoken:
         logger.critical(f'mismatch {signal.TOKEN=}')
         raise HTTPException(status_code=401, detail='check your webhook setting')
     
