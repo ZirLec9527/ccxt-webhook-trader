@@ -41,6 +41,7 @@ Setting all parameters in OS environment variables.
 * Edit `account` and `iplist` in the `setting.py` file. ( `testnet` for testing ) </br>
 Setting `TESTMODE` in OS environment variables to switch to testnet. if not set the default value is `False`.
 
+method 1 has higher priority than method 2. </br>
 For all IP allow can set to `['*']` ( If `TESTMODE` is `True` that `IP_ALLOW` always set to `['*']`)
 
 ### 3. Runing `uvicorn` server:
