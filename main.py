@@ -1,6 +1,7 @@
 import ccxt.async_support as ccxt
 import logging
 import os
+from ast import literal_eval
 from fastapi import FastAPI, Response, Request, HTTPException
 from mangum import Mangum
 from pydantic import BaseModel
@@ -19,14 +20,14 @@ class post_format(BaseModel):
     LEVERAGE : int
     COMMENT : str
 
-test = os.environ.get('TESTMODE', False)
+test = literal_eval(os.environ.get('TESTMODE', False))
 if test == True:
     from setting import testnet as apiconf
     allowip = ['*']
 else:
     from setting import account as apiconf
     from setting import iplist
-    allowip = os.environ.get('IP_ALLOW', iplist)
+    allowip = literal_eval(os.environ.get('IP_ALLOW', iplist))
 
 apitoken = os.environ.get('WEBHOOK_TOKEN', apiconf['WEBHOOK_TOKEN'])
 apiexchange = os.environ.get('EXCHANGE', apiconf['EXCHANGE'])
