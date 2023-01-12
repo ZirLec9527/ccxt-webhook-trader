@@ -5,6 +5,7 @@ from ast import literal_eval
 from fastapi import FastAPI, Response, Request, HTTPException
 from mangum import Mangum
 from pydantic import BaseModel
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO,  format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%c')
 logger = logging.getLogger('trader')
@@ -13,12 +14,12 @@ class post_format(BaseModel):
     TOKEN : str
     SYMBOL : str
     SIDE : str
-    ORDER_TYPE : str
     PRICE : float
     QUANTITY : float
-    REDUCEONLY : bool
-    LEVERAGE : int
-    COMMENT : str
+    ORDER_TYPE : Optional[str] = 'market'
+    REDUCEONLY : Optional[bool] = False
+    LEVERAGE : Optional[int] = -1
+    COMMENT : Optional[str] = None
 
 test = literal_eval(os.environ.get('TESTMODE', False))
 if test == True:
