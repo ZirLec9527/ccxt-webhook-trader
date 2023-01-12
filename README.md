@@ -6,7 +6,7 @@ Now only test WORKING for Binance USD-M future.
 ---
 ## Requirements
 * Python 3.7+
-* <a href="https://github.com/tiangolo/fastapi" target="_blank">FastAPI</a> : handle http requests.
+* <a href="https://github.com/tiangolo/fastapi" target="_blank">FastAPI</a> : a framework handles http requests.
 * <a href="https://github.com/ccxt/ccxt" target="_blank">CCXT Library</a> : connect and trade with cryptocurrency exchanges.
 
 If you need to deploy in AWS Lambda functions.
@@ -56,15 +56,34 @@ INFO:     Application startup complete.
 INFO:     Uvicorn running on http://localhost:8000 (Press CTRL+C to quit)
 ```
 ### 4. Using HTTP request methods `POST` to `http://localhost:8000/webhook` with JSON:
+
+Below is an order to buy 0.5 BTC at market price. `PRICE` has no effect.
 ```json
 {
     "TOKEN": "test1234qwer",
     "SYMBOL": "BTCUSDT",
     "SIDE": "buy",
-    "ORDER_TYPE": "limit",
-    "PRICE": 24680,
+    "PRICE": 12345,
     "QUANTITY": 0.5,
-    "REDUCEONLY": false,
+}
+```
+
+Additional parameters are as follows.</br>
+* `ORDER_TYPE`: Change order type.  By default order type is `market`
+* `REDUCEONLY`: The order is reduce position only or not. By default is `False`
+* `LEVERAGE` : Change leverage ratio. Default will not change.
+* `COMMENT` : Any comment you wanna.
+
+Here is an order to buy 0.8 BTC with a limit price of 24680. And change leverage ratio to 5x.
+```json
+{
+    "TOKEN": "test1234qwer",
+    "SYMBOL": "BTCUSDT",
+    "SIDE": "buy",
+    "PRICE": 24680,
+    "QUANTITY": 0.8,
+    "ORDER_TYPE": "limit",
+    "REDUCEONLY": False,
     "LEVERAGE": 5,
     "COMMENT": "test"
 }
